@@ -1,0 +1,2 @@
+# trafficcharts
+show router traffic
