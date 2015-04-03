@@ -1,2 +1,2 @@
 # trafficcharts
-show router traffic
+show router traffic with google charts
