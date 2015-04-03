@@ -1,0 +1,354 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>jQuery-CSV - local file chart</title>
+
+<script src="http://code.jquery.com/jquery-2.1.3.min.js"></script>
+
+<link href="http://code.jquery.com/ui/1.11.3/themes/smoothness/jquery-ui.css" rel="stylesheet" />
+<script src="http://code.jquery.com/ui/1.11.4/jquery-ui.min.js"></script>
+<script src="http://www.google.com/jsapi?autoload={'modules':[{'name':'visualization','version':'1','packages':['controls']}]}"></script>
+<script src="http://jquery-csv.googlecode.com/git/src/jquery.csv.js"></script>
+<script>
+<!-- time, total drops, 30s in bps, 30s in pps,30s out bps, 30s out pps, in pkt, in byte, out pkt, out byte -->
+
+	ctrlchartarray =[];
+	dash = null;
+  
+  $(document).ready(function() {
+    if (isAPIAvailable()) {
+	
+    $('#files').bind('change', handleFileSelect);
+    }
+
+  });
+
+  function isAPIAvailable() {
+    // Check for the various File API support.
+    if (window.File && window.FileReader && window.FileList && window.Blob) {
+      // Great success! All the File APIs are supported.
+	 // alert("API ist da!");
+      return true;
+    } else {
+      alert("The browser you're using does not currently support\nthe HTML5 File API. As a result the file loading demo\nwon't work properly.");
+      return false;
+    }
+  }
+
+
+  function handleFileSelect(evt) {
+     files = evt.target.files; // FileList object
+	
+	for ( var idx7=0, iLen=files.length; idx7<iLen; idx7++) {
+		chartFileData(files[idx7], idx7);
+	};
+	
+  }
+
+  function chartFileData(fileToParse, idx8) {
+    //$('#padding2').css({visibility: "visible"});
+    var reader = new FileReader();
+    
+    reader.onload = function() {
+    	var csv = reader.result;
+      //var csv = event.target.result; - does not work with firefox
+      var parsedData = $.csv.toArrays(csv, {
+        onParseValue: $.csv.hooks.castToScalar
+      });
+      drawChartCtrl(parsedData, idx8);
+      if (idx8 == 0) {
+      	drawDashBoard(ctrlchartarray[idx8]);
+      }
+      
+    };
+    reader.onerror = function() {
+      alert('Unable to read ' + fileToParse.name);
+    };
+    
+    reader.readAsText(fileToParse);
+  }
+
+  function drawDashBoard (chart) {
+  
+		var charttitle = chart.getOption('title','nix');
+		var data = chart.getDataTable();
+		var ctrlrange = null;
+		if (dash) {
+			//we have already a dashboard and need to clean the old
+			
+			//get the current range to set it to the new
+			ctrlrange = control.getState();
+			
+			chartbps.visualization.clearChart();
+			chartpps.visualization.clearChart();
+    		control.visualization.dispose();
+   			dash.dispose();	
+		}
+
+    dash = new google.visualization.Dashboard(document.getElementById('dashboard'));
+    
+    control = new google.visualization.ControlWrapper({
+      controlType: 'ChartRangeFilter',
+      containerId: 'control',
+      options: {
+        filterColumnIndex: 0,
+        ui: {
+          chartOptions: {height: 50,
+          					chartArea: {width: '70%'}
+          				},
+          chartView: {columns: [0,2,4]}
+        }
+      }
+    });
+    
+    if (ctrlrange) control.setState(ctrlrange); //we had an old dashboard
+
+    chartbps = new google.visualization.ChartWrapper({
+      chartType: 'LineChart',
+      containerId: 'chartbps',
+      options: { 'title': "Traffic of Router " +charttitle},
+       view: {'columns': [0, 2, 4]}
+    });
+    
+    chartpps = new google.visualization.ChartWrapper({
+      chartType: 'LineChart',
+      containerId: 'chartpps',
+      options: { 'title': 'Traffic of Router in pps',
+       
+       }, //options
+
+       view: {
+             'columns': [0, 3, 5,
+             {
+              'calc': function (dt, row) {
+               if (row == 0) return 0;
+               var dtime = (dt.getValue(row,0) - dt.getValue(row -1, 0));
+               var ddrops =(dt.getValue(row,1) - dt.getValue(row -1, 1));       			
+        	   return (ddrops *1000 / dtime);
+               },
+               'type': 'number',
+               'label': 'drops/s'
+             }]
+          }
+    });
+
+
+    function fixOptions(wrapper) {
+      // sets the options on the chart wrapper so that it draws correctly
+      //wrapper.setOption('height', 300);
+      //wrapper.setOption('width', 800);
+      wrapper.setOption('chartArea.width', '70%');
+      // the chart editor automatically enables animations, which doesn't look right with the ChartRangeFilter
+      wrapper.setOption('animation', null);
+      // the chart editor sets hAxis.viewWindowMode to 'pretty', which doesn't work well with continuous axes
+      wrapper.setOption('hAxis.viewWindowMode', 'maximized');
+      //wrapper.setOption('curveType', 'function'); - i do not like it
+      //wrapper.setOption('vAxis.title', "bps");
+    }
+
+    fixOptions(chartbps);
+    fixOptions(chartpps);
+    fixOptions(control);
+    
+    dash.bind([control], [chartbps, chartpps]);
+    dash.draw(data);
+    
+  }
+  
+  function fixtimestamp (dt) {
+  // we assume in column 0 a unix timesstamp and convert it to a date
+  
+	dt.insertColumn(0, 'datetime', "Time"); // lets assume all the other index is  
+	for (var y = 0, maxrows = dt.getNumberOfRows(); y < maxrows; y++) {
+     dt.setValue(y, 0, new Date(dt.getValue(y,1)*1000));
+	}
+	dt.removeColumn(1); // the old timestamp
+  
+  }
+  
+  
+  function drawChartCtrl (setChartData, idx72) {
+	
+	var newdiv = document.createElement('div');
+	var divIdName = 'ctrlchart'+idx72;
+	newdiv.setAttribute('id',divIdName);
+	document.getElementById('ctrldashboard').appendChild(newdiv);
+	
+    var data = new google.visualization.arrayToDataTable(setChartData);
+	fixtimestamp(data);
+    ctrlchartarray[idx72] = new google.visualization.ChartWrapper({
+      chartType: 'LineChart',
+      containerId: divIdName,
+	  dataTable: data,
+	  options: {'title': files[idx72].name, legend: 'none'},
+	  view: {
+             'columns': [0, 2, 4]
+          }
+      });
+		
+	ctrlchartarray[idx72].draw();
+	
+	$("#" +divIdName).click( clickfunc);
+	
+	//it is an ugly hack, we need to be sure to have all DataTable loaded
+	// as we might be calles async, it is not clear, if the last idx is
+	// the last finished, we should have a ready callback from the chart
+	
+	if (idx72 == (files.length -1))  { //last router
+      	makeStatBarChart();
+      	}
+	
+   }
+	
+	function clickfunc(event){
+		/* a chart was clicked
+		   identify, get it
+		   delete the old detailed chart
+		   draw the new detailed chart
+		 */
+		
+		var chartidx = parseInt(this.id.match(/\d+/)[0]); //extract the idx
+		//var chartidx = parseInt(this.id);
+		var chart = ctrlchartarray[chartidx];
+		drawDashBoard(chart);   		
+	}		
+
+function makeStatBarChart() {
+	/* called after all files have been loaded, dataTables for charts created
+   		gets the min max values per chart and data kind
+   		to set up a bar chart 
+   		getColumnRange(columnIndex)
+   		time, total drops, 30s in bps, 30s in pps,30s out bps, 30s out pps, in pkt, in byte, out pkt, out byte
+   		*/
+   	
+	stattab = new google.visualization.DataTable(
+      {
+        cols: [{id: 'router', label: 'router', type: 'string'},              
+               {id: 'maxinbps', label: 'max in kbps', type: 'number'},
+               {id: 'maxoutbps', label: 'max out kbps', type: 'number'},
+               {id: 'inbyte', label: 'in MByte', type: 'number'},
+               {id: 'outbyte', label: 'out MByte', type: 'number'},
+               {id: 'drops', label: 'drops', type: 'number'}
+               ]
+    	});
+    	
+   		for (var i=0; i < ctrlchartarray.length; i++) {
+   			var dt= ctrlchartarray[i].getDataTable();
+   			var routername = ctrlchartarray[i].getOption('title','nix');
+   			var locationid = routername.split(".")[1];
+   		
+   			var colminmax = dt.getColumnRange(1); //drops
+   			var drops = colminmax.max - colminmax.min;
+   			var maxinbps = dt.getColumnRange(2).max /1000;
+   			var maxoutbps = dt.getColumnRange(4).max /1000;
+   				colminmax = dt.getColumnRange(7);
+   			var inbyte = (colminmax.max - colminmax.min) /1000000;
+   				colminmax = dt.getColumnRange(9);
+   			var outbyte = (colminmax.max - colminmax.min) /1000000;
+   		
+   			stattab.addRow([locationid, maxinbps, maxoutbps, inbyte, outbyte, drops]);
+   		
+   		}
+   		
+   		timerange =ctrlchartarray[0].getDataTable().getColumnRange(0);
+   		var charttitle = 'stats from: ' +timerange.min.toISOString() +" to\r" + timerange.max.toISOString();
+   		
+   		statchart = new google.visualization.ChartWrapper({
+      		chartType: 'BarChart',
+      		dataTable: stattab,
+      		options: {'title': charttitle},
+      		containerId: 'statchart',
+    	});
+    	
+    	statchart.setOption('chartArea.width', '60%');
+    	statchart.setOption("hAxis.logScale", true);
+    	var statchartheight = 50*ctrlchartarray.length;
+    	if (statchartheight < 150) statchartheight = 150;
+    	statchart.setOption('height', statchartheight);
+    		
+    	
+    	function statChartHandler () {
+		
+			var selitem = statchart.getChart().getSelection();
+			var idx = null;
+			if (selitem[0]) idx = selitem[0].row;
+			
+			if (idx) drawDashBoard(ctrlchartarray[idx]);
+	
+		}
+    	
+    	google.visualization.events.addListener(statchart, 'select', statChartHandler); 
+        
+        statchart.draw();
+      
+  		
+}	
+
+
+  
+</script>
+
+</head>
+
+<body>
+      <p>To use this demo, just choose a set of CSV files through the file dialog. </p>
+      <hr />
+      <input id=files type=file name="file" multiple /> <!-- onchange handleFileSelect bind above-->
+      <hr />     
+		
+		<div id="wrapper">
+			<div id="steuerung">
+				<h3> VPN Overview </h3>
+				<div id=statchart></div>
+				<div id=ctrldashboard></div>
+					<!-- here div ctrlchart is added in code -->					
+			</div>
+
+			<div id="zweite_spalte">						
+				<div id=dashboard style="display:block; margin:0 auto;">
+					<div id=chartbps></div>
+					<div id=chartpps style="height:100px"></div>
+					<div id=control></div>
+				</div>
+			</div>
+		</div>
+
+      
+    <script>
+    	$( "#steuerung" ).resizable({
+			stop: function( event, ui ) {
+				var w1 = $( "#steuerung" ).width();
+    			$("#zweite_spalte").css('margin-left',w1 +'px');
+				statchart.draw();
+				dash.draw();
+				} 
+		});
+	//	$( "#statchart" ).resizable();
+	//	$( "#ctrldashboard" ).resizable();
+	</script>
+</body>
+<style type="text/css">
+#wrapper {
+	background-color: lightblue;
+}
+
+#steuerung {
+	background-color: yellow;
+	width: 25em;
+	float: left;
+	height: 800px;
+	overflow: auto;
+}
+
+#zweite_spalte {
+	background-color: green;
+	margin-left: 25em; 
+	
+}
+
+
+</style>
+
+</html>
